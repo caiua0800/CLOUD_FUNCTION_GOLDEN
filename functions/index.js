@@ -4,26 +4,40 @@ const adminController = require("./clients/adminController/adminController");
 const express = require("express");
 const cors = require("cors");
 const app = express();
+const cache = require('./database/cache');
 require('dotenv').config();
 
 // Configuração do CORS
 const corsOptions = {
-  origin: true, // Permite todas as origens
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type'],
+  origin: '*', // Permite todas as origens
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 };
-
 
 app.use(cors(corsOptions));
 
+// Inicializa o cache
 adminController.loadClientsToCache().then(() => {
   console.log('Cache inicializado.');
 }).catch(error => {
   console.error('Erro ao inicializar o cache:', error);
 });
 
+// Middleware para verificação e carregamento do cache
+app.use(async (req, res, next) => {
+  try {
+    const cachedClients = await cache.get('clients');
+    if (!cachedClients) {
+      await adminController.loadClientsToCache();
+    }
+    next();
+  } catch (error) {
+    console.error('Erro ao verificar ou carregar o cache:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+  }
+});
 
-//client
+// Rotas Client
 app.post('/getClient', clientController.getClient);
 app.post('/updateClient', clientController.updateCliente);
 app.post('/updateClientMoreThanOneInfo', clientController.updateClientMoreThanOneInfo);
@@ -39,7 +53,7 @@ app.post('/returnEmailLogin', clientController.returnEmailLogin);
 app.get('/getAllNews', clientController.getAllNews);
 app.post('/emailExists', clientController.returnEmailExists);
 
-//admin
+// Rotas Admin
 app.get('/getClients', adminController.getClients);
 app.get('/getClientsPaginated', adminController.getClientsPaginated);
 app.get('/obterDepositos', adminController.obterDepositos);
@@ -57,5 +71,22 @@ app.post('/createContratoAdmin', adminController.createContratoAdmin);
 app.post('/updateClienteValidacao', adminController.updateClienteValidacao);
 app.post('/createSaqueAdmin', adminController.createSaqueAdmin);
 app.get('/atualizarTodosContratosAtivos', adminController.atualizarTodosContratosAtivos);
+app.get('/testCache', adminController.testCache);
 
-exports.api = functions.https.onRequest(app);
+// Função Firebase com configuração de memória e timeout
+exports.api = functions.region('southamerica-east1').runWith({
+  memory: '2GB',
+  timeoutSeconds: 300,
+}).https.onRequest(app);
+
+// Schedule the function to run every day at 18:30 Brasília time
+exports.scheduledUpdateContracts = functions.region('southamerica-east1').pubsub.schedule('0 2 * * *')
+  .timeZone('America/Sao_Paulo') // Set the time zone to Brasília
+  .onRun(async (context) => {
+    try {
+      await adminController.atualizarTodosContratosAtivos();
+      console.log('Contratos ativos atualizados com sucesso.');
+    } catch (error) {
+      console.error('Erro ao atualizar os contratos ativos:', error);
+    }
+  });

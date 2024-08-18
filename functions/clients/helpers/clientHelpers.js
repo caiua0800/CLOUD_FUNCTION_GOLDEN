@@ -83,7 +83,7 @@ const processClientData = (cliente) => {
 
     // Adiciona os valores calculados ao objeto do cliente
     cliente.TOTAL_SPENT = totals.TOTAL_SPENT;
-    cliente.DISPONIVEL_SAQUE = totals.DISPONIVEL_SAQUE;
+    // cliente.DISPONIVEL_SAQUE = totals.DISPONIVEL_SAQUE;
     cliente.TOTAL_COINS = totals.TOTAL_COINS;
     cliente.LUCRO_CONTRATOS = totals.LUCRO_CONTRATOS;
 
@@ -105,7 +105,7 @@ const processClientData = (cliente) => {
     // Calcula o VALOR_SACADO
     const saquesArray = cliente.SAQUES || [];
     const valorSacado = saquesArray
-        .filter(saque => saque.STATUS === 1)
+        .filter(saque => saque.STATUS === 2)
         .reduce((sum, saque) => {
             if (saque.VALORSOLICITADO) {
                 // const value = parseFloat(saque.VALORSOLICITADO.replace(',', '.'));
@@ -117,7 +117,8 @@ const processClientData = (cliente) => {
         }, 0);
 
     cliente.VALOR_SACADO = valorSacado;
-    cliente.VALOR_A_RECEBER = (totals.VALOR_A_RECEBER -valorSacado);
+    cliente.VALOR_A_RECEBER = (totals.VALOR_A_RECEBER - valorSacado);
+    cliente.DISPONIVEL_SAQUE = totals.DISPONIVEL_SAQUE - valorSacado;
 
     return cliente;
 };

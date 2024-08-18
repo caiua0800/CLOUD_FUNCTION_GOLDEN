@@ -1,7 +1,11 @@
 const admin = require("firebase-admin");
-admin.initializeApp();
+const serviceAccount = require("../cloudKey.json"); 
 
-const db = admin.firestore(); 
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+const db = admin.firestore();
 const auth = admin.auth();
 
 module.exports = { db, auth };

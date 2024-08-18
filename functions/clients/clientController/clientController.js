@@ -3,29 +3,47 @@ const moment = require('moment');
 const { getCurrentTimestamp, processClientData, encrypt, decrypt } = require('../helpers/clientHelpers')
 const admin = require('firebase-admin');
 const { FieldValue } = require('firebase-admin/firestore');
-import cache from "../../database/cache";
+const cache = require("../../database/cache");
+const adminController = require("../adminController/adminController");
 
 const clientController = {
 
     getClient: async (request, response) => {
         try {
-            const clientId = request.body.CPF;
+            const clientId = request.body.clientId;
 
+            // Verificar no cache
+            // let clientData = cache.get(clientId);
+            // if (clientData) {
+            //     return response.status(200).json(clientData);
+            // }
+
+            // Buscar no Firestore
             const clientDoc = await db.collection('USERS').doc(clientId).get();
 
             if (!clientDoc.exists) {
-                return response.status(404).json({ error: "Cliente não encontrado" })
+                return response.status(404).json({ error: "Cliente não encontrado" });
             }
 
-            const clientData = processClientData(clientDoc.data());
+            const clientDocNewData = processClientData(clientDoc.data());
 
-            return response.status(200).json(clientData);
+            // Armazenar no cache
+            cache.set(clientId, clientDocNewData);
+
+            // Verificar se `clientDocNewData` contém `NAME`
+            if (clientDocNewData && clientDocNewData.NAME) {
+                console.log(clientDocNewData.NAME);
+            } else {
+                console.warn('clientDocNewData does not contain NAME');
+            }
+
+            return response.status(200).json(clientDocNewData);
         } catch (error) {
-            console.error("Error obtendo cliente:", error);
+            console.error("Error obtendo cliente:", error.message || error);
             return response.status(500).json({ error: 'Internal Server Error' });
         }
-
     },
+
 
     returnEmailLogin: async (request, response) => {
         const userName = request.body.USERNAME;
@@ -68,7 +86,17 @@ const clientController = {
         }
     },
 
+    getProfilePhotoURL: async (req, res) => {
+        const { docId } = req.body;
 
+        if(!docId){
+            return res.status(404).json({status: 404, data: "DOC ID OBRIGATÓRIO"})
+        }
+
+        const clienteRef = db.collection('USERS').doc(docId);
+        const clienteDoc = await clienteRef.get();
+        const data = clienteDoc.data();
+    },
 
 
     updateCliente: async (req, res) => {
@@ -78,6 +106,13 @@ const clientController = {
         }
 
         try {
+            // Atualiza o cliente no cache
+            let clienteCache = cache.get(docId);
+            if (clienteCache) {
+                clienteCache[field] = newValue;
+                cache.set(docId, clienteCache);
+            }
+
             // Atualiza o cliente no Firestore
             const clienteRef = db.collection('USERS').doc(docId);
             await clienteRef.update({ [field]: newValue });
@@ -86,6 +121,9 @@ const clientController = {
             const clienteDoc = await clienteRef.get();
             if (clienteDoc.exists) {
                 const updatedCliente = clienteDoc.data();
+
+                // Atualiza o cache novamente para garantir que o cache esteja em sincronia
+                cache.set(docId, updatedCliente);
 
                 res.status(202).json({ updatedCliente });
             } else {
@@ -104,6 +142,7 @@ const clientController = {
         }
 
         console.log("SOLICITAÇÃO DE EDITAR DADOS DO CLIENTE");
+
         try {
             // Construir o objeto de atualização para o Firestore
             const updateFields = {};
@@ -122,6 +161,9 @@ const clientController = {
             if (clienteDoc.exists) {
                 const updatedCliente = clienteDoc.data();
 
+                // Atualiza o cache e aguarda a conclusão
+                await adminController.loadClientsToCache();
+
                 res.status(200).json({ updatedCliente });
             } else {
                 res.status(404).send('Cliente não encontrado no Firestore.');
@@ -132,30 +174,47 @@ const clientController = {
         }
     },
 
+
+
     updateContrato: async (req, res) => {
         const { docId, IDCONTRATO, fieldName, fieldNewValue } = req.body;
         if (!docId || !IDCONTRATO || !fieldName || fieldNewValue === undefined) {
             return res.status(400).send('DocId, IDCONTRATO, fieldName e fieldNewValue são obrigatórios.');
         }
-        try {
 
+        try {
+            // Obtém o cliente do cache
+            let clienteCache = cache.get(docId);
+            if (clienteCache) {
+                const contratos = clienteCache.CONTRATOS || [];
+                const contratoIndex = contratos.findIndex(contrato => contrato.IDCOMPRA === IDCONTRATO);
+
+                if (contratoIndex !== -1) {
+                    contratos[contratoIndex][fieldName] = fieldNewValue;
+                    clienteCache.CONTRATOS = contratos;
+                    cache.set(docId, clienteCache);
+                } else {
+                    return res.status(404).send('Contrato não encontrado no cache.');
+                }
+            }
+
+            // Atualiza o contrato no Firestore
             const clienteRef = db.collection('USERS').doc(docId);
             const clienteDoc = await clienteRef.get();
-
             if (clienteDoc.exists) {
                 const clienteData = clienteDoc.data();
                 const contratos = clienteData.CONTRATOS || [];
-
                 const contratoIndex = contratos.findIndex(contrato => contrato.IDCOMPRA === IDCONTRATO);
+
                 if (contratoIndex !== -1) {
                     contratos[contratoIndex][fieldName] = fieldNewValue;
-
                     await clienteRef.update({ CONTRATOS: contratos });
-                    clienteData.CONTRATOS = contratos;
 
+                    clienteData.CONTRATOS = contratos;
+                    await adminController.loadClientsToCache();
                     res.status(200).json({ clienteData });
                 } else {
-                    res.status(404).send('Contrato não encontrado.');
+                    res.status(404).send('Contrato não encontrado no Firestore.');
                 }
             } else {
                 res.status(404).send('Cliente não encontrado no Firestore.');
@@ -170,35 +229,52 @@ const clientController = {
     updateSaque: async (req, res) => {
         const { docId, DATASOLICITACAO, fieldName, fieldNewValue } = req.body;
         if (!docId || !DATASOLICITACAO || !fieldName || fieldNewValue === undefined) {
-            return res.status(400).send('DocId, DATASOLICITACAO do contrato, fieldName e fieldNewValue são obrigatórios.');
+            return res.status(400).send('DocId, DATASOLICITACAO do saque, fieldName e fieldNewValue são obrigatórios.');
         }
 
         try {
+            // Obtém o cliente do cache
+            let clienteCache = cache.get(docId);
+            if (clienteCache) {
+                const saques = clienteCache.SAQUES || [];
+                const saqueIndex = saques.findIndex(saque => saque.DATASOLICITACAO === DATASOLICITACAO);
+
+                if (saqueIndex !== -1) {
+                    saques[saqueIndex][fieldName] = fieldNewValue;
+                    clienteCache.SAQUES = saques;
+                    cache.set(docId, clienteCache);
+                } else {
+                    return res.status(404).send('Saque não encontrado no cache.');
+                }
+            }
+
+            // Atualiza o saque no Firestore
             const clienteRef = db.collection('USERS').doc(docId);
             const clienteDoc = await clienteRef.get();
-
             if (clienteDoc.exists) {
                 const clienteData = clienteDoc.data();
                 const saques = clienteData.SAQUES || [];
-
                 const saqueIndex = saques.findIndex(saque => saque.DATASOLICITACAO === DATASOLICITACAO);
+
                 if (saqueIndex !== -1) {
                     saques[saqueIndex][fieldName] = fieldNewValue;
                     await clienteRef.update({ SAQUES: saques });
-
                     clienteData.SAQUES = saques;
-                    res.status(200).json({ clienteData });
+                    await adminController.loadClientsToCache();
+
+                    res.status(200).json({ status: 200, clienteData: clienteData, saque: { ...saques[saqueIndex], CLIENT_NAME: clienteData.NAME, CLIENT_CPF: clienteData.CPF, USERNAME: clienteData.USERNAME } });
                 } else {
-                    res.status(404).send('Saque não encontrado.');
+                    res.status(404).send('Saque não encontrado no Firestore.');
                 }
             } else {
                 res.status(404).send('Cliente não encontrado no Firestore.');
             }
         } catch (error) {
-            console.error('Erro ao atualizar o contrato:', error);
+            console.error('Erro ao atualizar o saque:', error);
             res.status(500).send('Erro ao atualizar o saque.');
         }
     },
+
 
     createCliente: async (req, res) => {
         const clientData = req.body;
@@ -230,6 +306,10 @@ const clientController = {
 
             await db.collection('USERS').doc(clientData.CPF).set(clientData);
 
+            // Adiciona o cliente ao cache
+            cache.set(clientData.CPF, clientData);
+            await adminController.loadClientsToCache();
+
             return res.status(201).json({ message: 'Usuário criado com sucesso!', uid: userCredential.uid });
         } catch (error) {
             console.error("Erro ao criar cliente:", error);
@@ -237,62 +317,88 @@ const clientController = {
         }
     },
 
+
     createClienteIndicacao: async (req, res) => {
         const { clientData } = req.body;
-    
+
         if (!clientData.CPF) {
-            return res.status(400).json({error:'O CPF é obrigatório.'});
+            return res.status(400).json({ error: 'O CPF é obrigatório.' });
         }
-    
+
         if (!clientData.PASSWORD) {
-            return res.status(400).send({error:'A senha é obrigatória.'});
+            return res.status(400).send({ error: 'A senha é obrigatória.' });
         }
-    
-        if (clientData.INDICADOR) {
-            const decryptedIndicator = decrypt(clientData.INDICADOR);
 
+        try {
+            if (clientData.INDICADOR) {
+                const decryptedIndicator = decrypt(clientData.INDICADOR);
 
-            const existingDoc = await db.collection('USERS').doc(clientData.CPF).get();
-            if (existingDoc.exists) {
-                return res.status(400).json({ error: 'Usuário com este CPF já existe.' });
-            }
-    
-            const displayNamesDoc = await db.collection('DisplayNames').doc(clientData.USERNAME).get();
-    
-            if (displayNamesDoc.exists) {
-                return res.status(400).json({ error: `Usuário ${clientData.USERNAME} já existe.` });
-            }
-    
-            const userCredential = await auth.createUser({
-                email: clientData.EMAIL,
-                password: clientData.PASSWORD
-            });
-    
-            await db.collection('DisplayNames').doc(clientData.USERNAME).set({
-                EMAIL: clientData.EMAIL,
-                CPF: clientData.CPF
-            });
-    
-            // Substituindo o INDICADOR pelo decryptedIndicator
-            const updatedClientData = {
-                ...clientData,
-                INDICADOR: decryptedIndicator
-            };
-    
-            await db.collection('USERS').doc(clientData.CPF).set(updatedClientData);
-            await db.collection('USERS').doc(decryptedIndicator).set({
-                INDICADOS: FieldValue.arrayUnion({
-                    NAME: clientData.NAME,
+                // Verifica se o usuário já existe
+                const existingDoc = await db.collection('USERS').doc(clientData.CPF).get();
+                if (existingDoc.exists) {
+                    return res.status(400).json({ error: 'Usuário com este CPF já existe.' });
+                }
+
+                const displayNamesDoc = await db.collection('DisplayNames').doc(clientData.USERNAME).get();
+                if (displayNamesDoc.exists) {
+                    return res.status(400).json({ error: `Usuário ${clientData.USERNAME} já existe.` });
+                }
+
+                // Cria o usuário no Firebase Authentication
+                await auth.createUser({
+                    email: clientData.EMAIL,
+                    password: clientData.PASSWORD
+                });
+
+                // Adiciona o nome de usuário no Firestore
+                await db.collection('DisplayNames').doc(clientData.USERNAME).set({
+                    EMAIL: clientData.EMAIL,
                     CPF: clientData.CPF
-                })
-            }, { merge: true });
+                });
 
-            return res.status(200).send("Usuário criado com sucesso");
+                // Atualiza o cliente com o INDICADOR descriptografado
+                const updatedClientData = {
+                    ...clientData,
+                    INDICADOR: decryptedIndicator
+                };
+
+                // Cria o cliente no Firestore
+                await db.collection('USERS').doc(clientData.CPF).set(updatedClientData);
+
+                // Atualiza o indicador com o novo cliente
+                await db.collection('USERS').doc(decryptedIndicator).set({
+                    INDICADOS: FieldValue.arrayUnion({
+                        NAME: clientData.NAME,
+                        CPF: clientData.CPF
+                    })
+                }, { merge: true });
+
+                // Atualiza o cache
+                cache.set(clientData.CPF, updatedClientData);
+                let indicadorCache = cache.get(decryptedIndicator);
+                if (indicadorCache) {
+                    indicadorCache.INDICADOS = [
+                        ...(indicadorCache.INDICADOS || []),
+                        {
+                            NAME: clientData.NAME,
+                            CPF: clientData.CPF
+                        }
+                    ];
+                    cache.set(decryptedIndicator, indicadorCache);
+                }
+                await adminController.loadClientsToCache();
+
+                return res.status(200).send("Usuário criado com sucesso");
+            }
+
+            return res.status(400).send("Não encontrado");
+        } catch (error) {
+            console.error('Erro ao criar cliente:', error);
+            return res.status(500).send('Erro ao criar cliente.');
         }
-    
-        return res.status(400).send("Não encontrado");
     },
-    
+
+
 
     criptografarString: async (req, res) => {
         const string = req.body.string;
@@ -315,7 +421,6 @@ const clientController = {
         }
 
         try {
-
             const clienteRef = db.collection('USERS').doc(CPF);
             const clienteDoc = await clienteRef.get();
 
@@ -333,7 +438,10 @@ const clientController = {
                 // Atualiza o cliente no Firestore
                 await clienteRef.update({ CONTRATOS: contratos });
 
+                // Atualiza o cliente no cache
                 clienteData.CONTRATOS = contratos;
+                cache.set(CPF, clienteData);
+                await adminController.loadClientsToCache();
 
                 res.status(201).send('SOLICITAÇÃO DE COMPRA FEITA COM SUCESSO, FAÇA O PAGAMENTO E AGUARDE A CONFIRMAÇÃO.');
             } else {
@@ -352,7 +460,6 @@ const clientController = {
         }
 
         try {
-
             const clienteRef = db.collection('USERS').doc(CPF);
             const clienteDoc = await clienteRef.get();
 
@@ -365,10 +472,22 @@ const clientController = {
                     DATASOLICITACAO: moment().format('YYYY-MM-DD HH:mm:ss')
                 };
                 saques.push(newSaque);
-                await clienteRef.update({ SAQUES: saques });
-                clienteData.SAQUES = saques;
 
-                res.status(201).send('Saque criado com sucesso.');
+                // Atualiza o cliente no Firestore
+                await clienteRef.update({ SAQUES: saques });
+
+                // Atualiza o cliente no cache
+                clienteData.SAQUES = saques;
+                cache.set(CPF, clienteData);
+
+                const returnSaque = {
+                    ...newSaque,
+                    "CLIENT_NAME": clienteData.NAME,
+                    "CLIENT_CPF": clienteData.CPF,
+                    "USERNAME": clienteData.USERNAME
+                }
+                await adminController.loadClientsToCache();
+                res.status(201).json({ resposta: returnSaque, status: 201 });
             } else {
                 res.status(404).send('Cliente não encontrado no Firestore.');
             }
@@ -377,6 +496,7 @@ const clientController = {
             res.status(500).send('Erro ao criar o saque.');
         }
     },
+
 
     getAllNews: async (req, res) => {
         try {
@@ -420,9 +540,16 @@ const clientController = {
                 TIMESTAMP: timestamp
             });
 
+            // Atualiza o indicador no Firestore
             await indicadorRef.update({ INDICACAO: indicacaoArray });
+
+            // Atualiza o indicador no cache
+            const updatedIndicadorData = { ...indicadorDoc.data(), INDICACAO: indicacaoArray };
+            cache.set(CPF_INDICADOR, updatedIndicadorData);
+
             console.log("Saldo adicionado ao indicador");
 
+            // Remove o indicador do indicado
             const indicadoRef = db.collection('USERS').doc(CPF_INDICADO);
             const indicadoDoc = await indicadoRef.get();
 
@@ -431,6 +558,11 @@ const clientController = {
             }
 
             await indicadoRef.update({ INDICADOR: null });
+
+            // Atualiza o indicado no cache
+            const updatedIndicadoData = { ...indicadoDoc.data(), INDICADOR: null };
+            cache.set(CPF_INDICADO, updatedIndicadoData);
+
             console.log("Indicador removido do indicado");
 
             res.send('Saldo adicionado ao indicador e indicador removido do indicado com sucesso.');
@@ -439,6 +571,7 @@ const clientController = {
             res.status(500).send('Erro ao adicionar saldo ao indicador.');
         }
     },
+
 
 
 }
