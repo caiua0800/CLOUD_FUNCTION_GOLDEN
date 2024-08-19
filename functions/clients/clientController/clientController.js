@@ -322,6 +322,7 @@ const clientController = {
         const { clientData } = req.body;
 
         if (!clientData.CPF) {
+            
             return res.status(400).json({ error: 'O CPF é obrigatório.' });
         }
 
@@ -332,7 +333,8 @@ const clientController = {
         try {
             if (clientData.INDICADOR) {
                 const decryptedIndicator = decrypt(clientData.INDICADOR);
-
+                console.log('data recebida');
+                console.log(clientData)
                 // Verifica se o usuário já existe
                 const existingDoc = await db.collection('USERS').doc(clientData.CPF).get();
                 if (existingDoc.exists) {
@@ -373,19 +375,7 @@ const clientController = {
                     })
                 }, { merge: true });
 
-                // Atualiza o cache
-                cache.set(clientData.CPF, updatedClientData);
-                let indicadorCache = cache.get(decryptedIndicator);
-                if (indicadorCache) {
-                    indicadorCache.INDICADOS = [
-                        ...(indicadorCache.INDICADOS || []),
-                        {
-                            NAME: clientData.NAME,
-                            CPF: clientData.CPF
-                        }
-                    ];
-                    cache.set(decryptedIndicator, indicadorCache);
-                }
+
                 await adminController.loadClientsToCache();
 
                 return res.status(200).send("Usuário criado com sucesso");
