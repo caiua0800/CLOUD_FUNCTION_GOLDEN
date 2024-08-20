@@ -1080,8 +1080,56 @@ const adminController = {
     },
 
     adicionarSaldoParaSaque: async (req, res) => {
+        const { userId, contractId, increasement } = req.body;
+    
+        if (!userId || !contractId, !increasement) {
+            return res.status(400).json({ data: "userId, increasement ou contractId não enviados" });
+        }
+    
+        try {
+            const clienteRef = db.collection('USERS').doc(userId);
+            const clienteDoc = await clienteRef.get();
+    
+            if (clienteDoc.exists) {
+                const clienteData = clienteDoc.data();
+                const contratos = clienteData.CONTRATOS || [];
+    
+                // Identifica o contrato que você quer editar
+                const contratoIndex = contratos.findIndex(contract => contract.IDCOMPRA === contractId);
+    
+                // Verifica se o contrato foi encontrado
+                if (contratoIndex !== -1) {
 
-        
+                    const rendimentoAtual = contratos[contratoIndex].RENDIMENTO_ATUAL; 
+                    const valorInvestido = contratos[contratoIndex].TOTALSPENT;
+
+                    //vou dividir a multiplicacao por isso
+                    const valorLucroAtualDoContrato = (parseFloat(valorInvestido))* (parseFloat(valorInvestido)/100);
+
+                    //multiplicacao = rendimentoAtual * o valor
+                    const multiplicacao = parseFloat(increasement) * parseFloat(rendimentoAtual)
+
+                    const novoRendimento = multiplicacao/valorLucroAtualDoContrato;
+
+                    contratos[contratoIndex].RENDIMENTO_ATUAL = novoRendimento;
+
+                    await clienteRef.update({ CONTRATOS: contratos });
+    
+                    // Carrega os clientes atualizados em cache se necessário
+                    await adminController.loadClientsToCache();
+    
+                    return res.status(200).json({ data: 'Lucro antecipado com sucesso!', status: 200 });
+                } else {
+                    return res.status(404).json({ data: 'Contrato não encontrado.', status: 404 });
+                }
+            } else {
+                return res.status(404).json({ data: 'Cliente não encontrado no Firestore.', status: 404 });
+            }
+    
+        } catch (error) {
+            console.error("Erro ao cancelar o contrato:", error);
+            return res.status(500).json({ data: 'Erro no servidor.', status: 500 });
+        }
     }
     
 
