@@ -990,49 +990,51 @@ const adminController = {
 
     adicionarIndicacao: async (req, res) => {
         const { userId, indicationQtt } = req.body;
-
+    
         if (!userId || !indicationQtt) {
-            return res.status(404).json({ data: "userId ou indicationQtt não enviados" });
+            return res.status(400).json({ data: "userId ou indicationQtt não enviados" });
         }
-
+    
         try {
-
             const clienteRef = db.collection('USERS').doc(userId);
             const clienteDoc = await clienteRef.get();
-
+    
             if (clienteDoc.exists) {
                 const clienteData = clienteDoc.data();
                 const indicacoes = clienteData.INDICACAO || [];
-
+    
                 const newIndication = {
                     CPF: clienteData.CPF,
                     TIMESTAMP: moment().format('YYYY-MM-DD HH:mm:ss'),
                     NAME: "ADICIONADO PELA GOLDEN",
                     VALOR: parseFloat(indicationQtt)
                 };
-
+    
                 indicacoes.push(newIndication);
-
-                await clienteRef.update({ INDICACAO: saques });
-
+    
+                // Aqui você deve corrigir "saques" para "indicacoes"
+                await clienteRef.update({ INDICACAO: indicacoes });
+    
                 // Atualiza o cache com os dados mais recentes
                 const clientsSnapshot = await db.collection('USERS').get();
                 const updatedClients = clientsSnapshot.docs.map(doc => ({
                     CPF: doc.id,
                     ...doc.data()
                 }));
-
+    
                 await adminController.loadClientsToCache();
-
-                return res.status(200).json({data:'Indicação adicionada com sucesso', status: 200});
+    
+                return res.status(200).json({ data: 'Indicação adicionada com sucesso', status: 200 });
             } else {
-                return res.status(404).json({data:'Cliente não encontrado no Firestore.', status: 404});
+                return res.status(404).json({ data: 'Cliente não encontrado no Firestore.', status: 404 });
             }
-
+    
         } catch (error) {
-            return res.status(500).json({data:'Erro no servidor.', status: 404});
+            console.error("Erro ao adicionar indicação:", error); // Adiciona log no console
+            return res.status(500).json({ data: 'Erro no servidor.', status: 500, error: error.message }); // Retorna a mensagem do erro
         }
     },
+    
 
     cancelarContrato: async (req, res) => {
         const { userId, contractId } = req.body;
@@ -1104,14 +1106,14 @@ const adminController = {
                     const valorInvestido = contratos[contratoIndex].TOTALSPENT;
 
                     //vou dividir a multiplicacao por isso
-                    const valorLucroAtualDoContrato = (parseFloat(valorInvestido))* (parseFloat(valorInvestido)/100);
+                    const valorLucroAtualDoContrato = (parseFloat(valorInvestido)) * (parseFloat(rendimentoAtual)/100);
 
                     //multiplicacao = rendimentoAtual * o valor
                     const multiplicacao = parseFloat(increasement) * parseFloat(rendimentoAtual)
 
-                    const novoRendimento = multiplicacao/valorLucroAtualDoContrato;
+                    const novoRendimento = (multiplicacao)/valorLucroAtualDoContrato;
 
-                    contratos[contratoIndex].RENDIMENTO_ATUAL = novoRendimento;
+                    contratos[contratoIndex].RENDIMENTO_ATUAL = ((novoRendimento) + rendimentoAtual);
 
                     await clienteRef.update({ CONTRATOS: contratos });
     

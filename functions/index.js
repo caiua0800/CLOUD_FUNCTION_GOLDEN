@@ -74,6 +74,7 @@ app.get('/atualizarTodosContratosAtivos', adminController.atualizarTodosContrato
 app.get('/testCache', adminController.testCache);
 app.post('/adicionarIndicacao', adminController.adicionarIndicacao);
 app.post('/cancelarContrato', adminController.cancelarContrato);
+app.post('/adicionarSaldoParaSaque', adminController.adicionarSaldoParaSaque);
 
 
 // Função Firebase com configuração de memória e timeout
