@@ -2,6 +2,7 @@ const { db, auth } = require("../../database/firebaseAdmin");
 const { processClientData } = require('../helpers/clientHelpers')
 const cache = require('../../database/cache')
 const moment = require('moment');
+const { initializeApp } = require("firebase-admin");
 
 
 const adminController = {
@@ -986,6 +987,103 @@ const adminController = {
             res.status(500).json({ error: 'Erro ao acessar o cache' });
         }
     },
+
+    adicionarIndicacao: async (req, res) => {
+        const { userId, indicationQtt } = req.body;
+
+        if (!userId || !indicationQtt) {
+            return res.status(404).json({ data: "userId ou indicationQtt não enviados" });
+        }
+
+        try {
+
+            const clienteRef = db.collection('USERS').doc(userId);
+            const clienteDoc = await clienteRef.get();
+
+            if (clienteDoc.exists) {
+                const clienteData = clienteDoc.data();
+                const indicacoes = clienteData.INDICACAO || [];
+
+                const newIndication = {
+                    CPF: clienteData.CPF,
+                    TIMESTAMP: moment().format('YYYY-MM-DD HH:mm:ss'),
+                    NAME: "ADICIONADO PELA GOLDEN",
+                    VALOR: parseFloat(indicationQtt)
+                };
+
+                indicacoes.push(newIndication);
+
+                await clienteRef.update({ INDICACAO: saques });
+
+                // Atualiza o cache com os dados mais recentes
+                const clientsSnapshot = await db.collection('USERS').get();
+                const updatedClients = clientsSnapshot.docs.map(doc => ({
+                    CPF: doc.id,
+                    ...doc.data()
+                }));
+
+                await adminController.loadClientsToCache();
+
+                return res.status(200).json({data:'Indicação adicionada com sucesso', status: 200});
+            } else {
+                return res.status(404).json({data:'Cliente não encontrado no Firestore.', status: 404});
+            }
+
+        } catch (error) {
+            return res.status(500).json({data:'Erro no servidor.', status: 404});
+        }
+    },
+
+    cancelarContrato: async (req, res) => {
+        const { userId, contractId } = req.body;
+    
+        if (!userId || !contractId) {
+            return res.status(400).json({ data: "userId ou contractId não enviados" });
+        }
+    
+        try {
+            const clienteRef = db.collection('USERS').doc(userId);
+            const clienteDoc = await clienteRef.get();
+    
+            if (clienteDoc.exists) {
+                const clienteData = clienteDoc.data();
+                const contratos = clienteData.CONTRATOS || [];
+    
+                // Identifica o contrato que você quer editar
+                const contratoIndex = contratos.findIndex(contract => contract.IDCOMPRA === contractId);
+    
+                // Verifica se o contrato foi encontrado
+                if (contratoIndex !== -1) {
+                    // Atualizando os campos necessários
+                    contratos[contratoIndex].MAXIMUMQUOTAYIELD = "0"; // Ou o valor que você deseja definir
+                    contratos[contratoIndex].RENDIMENTO_ATUAL = 0; // Ou o valor que você deseja definir
+                    contratos[contratoIndex].STATUS = 3; // Ou outro valor de status desejado
+    
+                    // Atualiza a coleção de contratos do cliente
+                    await clienteRef.update({ CONTRATOS: contratos });
+    
+                    // Carrega os clientes atualizados em cache se necessário
+                    await adminController.loadClientsToCache();
+    
+                    return res.status(200).json({ data: 'Contrato cancelado!', status: 200 });
+                } else {
+                    return res.status(404).json({ data: 'Contrato não encontrado.', status: 404 });
+                }
+            } else {
+                return res.status(404).json({ data: 'Cliente não encontrado no Firestore.', status: 404 });
+            }
+    
+        } catch (error) {
+            console.error("Erro ao cancelar o contrato:", error);
+            return res.status(500).json({ data: 'Erro no servidor.', status: 500 });
+        }
+    },
+
+    adicionarSaldoParaSaque: async (req, res) => {
+
+        
+    }
+    
 
 }
 

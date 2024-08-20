@@ -72,6 +72,9 @@ app.post('/updateClienteValidacao', adminController.updateClienteValidacao);
 app.post('/createSaqueAdmin', adminController.createSaqueAdmin);
 app.get('/atualizarTodosContratosAtivos', adminController.atualizarTodosContratosAtivos);
 app.get('/testCache', adminController.testCache);
+app.post('/adicionarIndicacao', adminController.adicionarIndicacao);
+app.post('/cancelarContrato', adminController.cancelarContrato);
+
 
 // Função Firebase com configuração de memória e timeout
 exports.api = functions.region('southamerica-east1').runWith({
