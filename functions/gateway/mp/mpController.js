@@ -3,8 +3,8 @@ require('dotenv').config();
 const { MercadoPagoConfig, Payment } = require('mercadopago');
 const { v4: uuidv4 } = require('uuid');
 const functions = require('firebase-functions');
-const accessToken = "APP_USR-1375204330701481-073021-97be99fab97882aa55c07ffe1e81ec7e-246170016";
-// const accessToken = functions.config().mercadopago.access_token;
+// const accessToken = "APP_USR-1375204330701481-073021-97be99fab97882aa55c07ffe1e81ec7e-246170016";
+const accessToken = functions.config().mercadopago.access_token;
 
 
 // Step 2: Initialize the client object

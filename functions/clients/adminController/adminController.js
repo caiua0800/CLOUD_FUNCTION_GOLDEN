@@ -3,7 +3,7 @@ const { processClientData } = require('../helpers/clientHelpers')
 const cache = require('../../database/cache')
 const moment = require('moment');
 const { initializeApp } = require("firebase-admin");
-
+const archiver = require('archiver');
 
 const adminController = {
 
@@ -52,62 +52,107 @@ const adminController = {
         }
     },
 
-    getClientsPaginated: async (req, res) => {
+    convertToCSV: (data, fields) => {
+        // Gera cabeçalho CSV
+        const header = fields.join(',') + '\n';
+        const rows = data.map(row => fields.map(field => row[field]).join(',')).join('\n');
+        return header + rows;
+    },
+    
+
+
+
+    getExtractDatabase: async (req, res) => {
         try {
-            const PAGE_SIZE = 10;
-            const lastDocId = req.query.lastDoc;
-
-            // Recupera todos os clientes do cache
             const cachedClients = await cache.get('clients');
-
-            if (cachedClients) {
-                const clients = cachedClients;
-                const startIndex = lastDocId ? clients.findIndex(c => c.id === lastDocId) + 1 : 0;
-                const paginatedClients = clients.slice(startIndex, startIndex + PAGE_SIZE);
-
-                const nextLastDoc = paginatedClients.length > 0 ? paginatedClients[paginatedClients.length - 1].id : null;
-
-                return res.status(200).json({
-                    clients: paginatedClients,
-                    nextLastDoc
-                });
+    
+            // Verifique se há clientes no cache
+            if (!cachedClients || cachedClients.length === 0) {
+                return res.status(404).send('Nenhum cliente encontrado no cache.');
             }
-
-            // Se não estiver no cache, busca no Firebase e atualiza o cache
-            const query = db.collection('USERS').orderBy('NAME').limit(PAGE_SIZE);
-
-            if (lastDocId) {
-                const lastDocSnapshot = await db.collection('USERS').doc(lastDocId).get();
-                if (!lastDocSnapshot.exists) {
-                    return res.status(400).json({ error: "Documento não encontrado" });
-                }
-                query = query.startAfter(lastDocSnapshot);
-            }
-
-            const clientsSnapshot = await query.get();
-            if (clientsSnapshot.empty) {
-                return res.status(404).json({ error: "Nenhum cliente encontrado" });
-            }
-
-            const clients = clientsSnapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
+    
+            // Criar um arquivo ZIP na memória
+            const zipFileName = 'clientes_data.zip';
+            const archive = archiver('zip', { zlib: { level: 9 } });
+    
+            res.attachment(zipFileName); // Define o nome do arquivo para download
+            archive.pipe(res); // Faz o pipe do conteúdo diretamente na resposta
+    
+            // Cria a tabela de CLIENTES
+            const clientsFields = ['ID', 'NOME', 'EMAIL', 'CELULAR', 'ENDERECO', 'CIDADE', 'ESTADO', 'PAIS'];
+            const clientsData = cachedClients.map(client => ({
+                ID: client.CPF,
+                NOME: client.NAME,
+                EMAIL: client.EMAIL,
+                CELULAR: client.CONTACT,
+                ENDERECO: client.ADRESS,
+                CIDADE: client.CITY,
+                ESTADO: client.STATE,
+                PAIS: client.COUNTRY,
             }));
-
-            // Atualiza o cache com os clientes
-            await cache.set('clients', clients);
-
-            const nextLastDoc = clientsSnapshot.docs[clientsSnapshot.docs.length - 1]?.id || null;
-
-            return res.status(200).json({
-                clients,
-                nextLastDoc
+    
+            const clientsCsv = convertToCSV(clientsData, clientsFields);
+            archive.append(clientsCsv, { name: 'clientes.csv' });
+    
+            // Cria a tabela de SAQUES
+            const saquesFields = ['CLIENT_ID', 'STATUS', 'DATASOLICITACAO', 'VALORSOLICITADO'];
+            const saquesData = cachedClients.flatMap(client => {
+                return client.SAQUES ? client.SAQUES.map(saque => ({
+                    CLIENT_ID: client.CPF,
+                    STATUS: saque.STATUS,
+                    DATASOLICITACAO: saque.DATASOLICITACAO,
+                    VALORSOLICITADO: saque.VALORSOLICITADO,
+                })) : [];
             });
+    
+            if (saquesData.length > 0) {
+                const saquesCsv = convertToCSV(saquesData, saquesFields);
+                archive.append(saquesCsv, { name: 'saques.csv' });
+            }
+    
+            // Cria a tabela de INDICAÇÃO
+            const indicacaoFields = ['CLIENT_ID', 'NAME', 'CPF'];
+            const indicacaoData = cachedClients.flatMap(client => {
+                return client.INDICACAO ? client.INDICACAO.map(indicacao => ({
+                    CLIENT_ID: client.CPF,
+                    NAME: indicacao.NAME,
+                    CPF: indicacao.CPF,
+                })) : [];
+            });
+    
+            if (indicacaoData.length > 0) {
+                const indicacaoCsv = convertToCSV(indicacaoData, indicacaoFields);
+                archive.append(indicacaoCsv, { name: 'indicacao.csv' });
+            }
+    
+            // Cria a tabela de CONTRATOS
+            const contratosFields = ['CLIENT_ID', 'COINVALUE', 'CURRENTINCOME', 'STATUS', 'PURCHASEDATE', 'IDCOMPRA', 'TOTALSPENT', 'RENDIMENTO_ATUAL'];
+            const contratosData = cachedClients.flatMap(client => {
+                return client.CONTRATOS ? client.CONTRATOS.map(contrato => ({
+                    CLIENT_ID: client.CPF,
+                    COINVALUE: contrato.COINVALUE,
+                    CURRENTINCOME: contrato.CURRENTINCOME,
+                    STATUS: contrato.STATUS,
+                    PURCHASEDATE: contrato.PURCHASEDATE,
+                    IDCOMPRA: contrato.IDCOMPRA,
+                    TOTALSPENT: contrato.TOTALSPENT, // Campo adicionado
+                    RENDIMENTO_ATUAL: contrato.RENDIMENTO_ATUAL // Campo adicionado
+                })) : [];
+            });
+    
+            if (contratosData.length > 0) {
+                const contratosCsv = convertToCSV(contratosData, contratosFields);
+                archive.append(contratosCsv, { name: 'contratos.csv' });
+            }
+    
+            await archive.finalize(); // Finaliza o arquivo ZIP e envia
+    
         } catch (error) {
-            console.error("Erro ao obter clientes:", error);
-            return res.status(500).json({ error: 'Internal Server Error' });
+            console.error('Erro ao extrair dados do banco:', error);
+            return res.status(500).send('Erro ao extrair dados do banco.');
         }
     },
+
 
     obterDepositos: async (req, res) => {
         try {
@@ -599,60 +644,48 @@ const adminController = {
         }
 
         try {
-            // Atualiza o cliente no cache
+            // Obtém os clientes do cache
             const cachedClients = await cache.get('clients');
 
             if (cachedClients) {
                 const clienteIndex = cachedClients.findIndex(cliente => cliente.CPF === docId);
 
                 if (clienteIndex !== -1) {
-                    // Atualiza o cliente no cache
+                    // Atualiza os campos no cache
                     cachedClients[clienteIndex].DOCSENVIADOS = DOCSENVIADOS;
                     cachedClients[clienteIndex].DOCSVERIFICADOS = DOCSVERIFICADOS;
-
-                    // Atualiza o cache com o cliente atualizado
-                    await cache.set('clients', cachedClients);
 
                     // Atualiza o cliente no Firestore
                     const clienteRef = db.collection('USERS').doc(docId);
                     await clienteRef.update({ DOCSENVIADOS, DOCSVERIFICADOS });
 
+                    // Atualiza o cliente no cache
+                    await cache.set('clients', cachedClients);
+
                     return res.status(200).send('Cliente atualizado com sucesso no cache e no Firestore.');
                 } else {
-                    // Se o cliente não estiver no cache, atualiza somente no Firestore
+                    // Se o cliente não estiver no cache, apenas atualize no Firestore
                     const clienteRef = db.collection('USERS').doc(docId);
                     await clienteRef.update({ DOCSENVIADOS, DOCSVERIFICADOS });
 
-                    // Atualiza o cache
-                    const clientsSnapshot = await db.collection('USERS').get();
-                    const updatedClients = clientsSnapshot.docs.map(doc => ({
-                        CPF: doc.id,
-                        ...doc.data()
-                    }));
-                    await cache.set('clients', updatedClients);
+                    // Opcionalmente, você pode adicionar o cliente atualizado ao cache, se necessário
+                    // Aqui você pode fazer o fetch do cliente e adicionar ao cache, se desejado.
 
-                    return res.status(200).send('Cliente atualizado no Firestore e cache sincronizado.');
+                    return res.status(200).send('Cliente atualizado no Firestore, mas não encontrado no cache.');
                 }
             } else {
-                // Se não houver cache, atualiza diretamente no Firestore
+                // Se o cache estiver vazio, apenas atualize no Firestore
                 const clienteRef = db.collection('USERS').doc(docId);
                 await clienteRef.update({ DOCSENVIADOS, DOCSVERIFICADOS });
 
-                // Atualiza o cache
-                const clientsSnapshot = await db.collection('USERS').get();
-                const updatedClients = clientsSnapshot.docs.map(doc => ({
-                    CPF: doc.id,
-                    ...doc.data()
-                }));
-                await cache.set('clients', updatedClients);
-
-                return res.status(200).send('Cliente atualizado no Firestore e cache sincronizado.');
+                return res.status(200).send('Cliente atualizado no Firestore e o cache está vazio.');
             }
         } catch (error) {
             console.error('Erro ao atualizar o cliente:', error);
             return res.status(500).send('Erro ao atualizar o cliente.');
         }
     },
+
 
     //tenho um erro aqui pra criar contrato pelo admin, importar moment
     createContratoAdmin: async (req, res) => {
@@ -990,83 +1023,83 @@ const adminController = {
 
     adicionarIndicacao: async (req, res) => {
         const { userId, indicationQtt } = req.body;
-    
+
         if (!userId || !indicationQtt) {
             return res.status(400).json({ data: "userId ou indicationQtt não enviados" });
         }
-    
+
         try {
             const clienteRef = db.collection('USERS').doc(userId);
             const clienteDoc = await clienteRef.get();
-    
+
             if (clienteDoc.exists) {
                 const clienteData = clienteDoc.data();
                 const indicacoes = clienteData.INDICACAO || [];
-    
+
                 const newIndication = {
                     CPF: clienteData.CPF,
                     TIMESTAMP: moment().format('YYYY-MM-DD HH:mm:ss'),
                     NAME: "ADICIONADO PELA GOLDEN",
                     VALOR: parseFloat(indicationQtt)
                 };
-    
+
                 indicacoes.push(newIndication);
-    
+
                 // Aqui você deve corrigir "saques" para "indicacoes"
                 await clienteRef.update({ INDICACAO: indicacoes });
-    
+
                 // Atualiza o cache com os dados mais recentes
                 const clientsSnapshot = await db.collection('USERS').get();
                 const updatedClients = clientsSnapshot.docs.map(doc => ({
                     CPF: doc.id,
                     ...doc.data()
                 }));
-    
+
                 await adminController.loadClientsToCache();
-    
+
                 return res.status(200).json({ data: 'Indicação adicionada com sucesso', status: 200 });
             } else {
                 return res.status(404).json({ data: 'Cliente não encontrado no Firestore.', status: 404 });
             }
-    
+
         } catch (error) {
             console.error("Erro ao adicionar indicação:", error); // Adiciona log no console
             return res.status(500).json({ data: 'Erro no servidor.', status: 500, error: error.message }); // Retorna a mensagem do erro
         }
     },
-    
+
 
     cancelarContrato: async (req, res) => {
         const { userId, contractId } = req.body;
-    
+
         if (!userId || !contractId) {
             return res.status(400).json({ data: "userId ou contractId não enviados" });
         }
-    
+
         try {
             const clienteRef = db.collection('USERS').doc(userId);
             const clienteDoc = await clienteRef.get();
-    
+
             if (clienteDoc.exists) {
                 const clienteData = clienteDoc.data();
                 const contratos = clienteData.CONTRATOS || [];
-    
+
                 // Identifica o contrato que você quer editar
                 const contratoIndex = contratos.findIndex(contract => contract.IDCOMPRA === contractId);
-    
+
                 // Verifica se o contrato foi encontrado
                 if (contratoIndex !== -1) {
                     // Atualizando os campos necessários
                     contratos[contratoIndex].MAXIMUMQUOTAYIELD = "0"; // Ou o valor que você deseja definir
                     contratos[contratoIndex].RENDIMENTO_ATUAL = 0; // Ou o valor que você deseja definir
                     contratos[contratoIndex].STATUS = 3; // Ou outro valor de status desejado
-    
+
                     // Atualiza a coleção de contratos do cliente
                     await clienteRef.update({ CONTRATOS: contratos });
-    
+
                     // Carrega os clientes atualizados em cache se necessário
                     await adminController.loadClientsToCache();
-    
+
                     return res.status(200).json({ data: 'Contrato cancelado!', status: 200 });
                 } else {
                     return res.status(404).json({ data: 'Contrato não encontrado.', status: 404 });
@@ -1074,7 +1107,7 @@ const adminController = {
             } else {
                 return res.status(404).json({ data: 'Cliente não encontrado no Firestore.', status: 404 });
             }
-    
+
         } catch (error) {
             console.error("Erro ao cancelar o contrato:", error);
             return res.status(500).json({ data: 'Erro no servidor.', status: 500 });
@@ -1083,43 +1116,43 @@ const adminController = {
 
     adicionarSaldoParaSaque: async (req, res) => {
         const { userId, contractId, increasement } = req.body;
-    
+
         if (!userId || !contractId, !increasement) {
             return res.status(400).json({ data: "userId, increasement ou contractId não enviados" });
         }
-    
+
         try {
             const clienteRef = db.collection('USERS').doc(userId);
             const clienteDoc = await clienteRef.get();
-    
+
             if (clienteDoc.exists) {
                 const clienteData = clienteDoc.data();
                 const contratos = clienteData.CONTRATOS || [];
-    
+
                 // Identifica o contrato que você quer editar
                 const contratoIndex = contratos.findIndex(contract => contract.IDCOMPRA === contractId);
-    
+
                 // Verifica se o contrato foi encontrado
                 if (contratoIndex !== -1) {
 
-                    const rendimentoAtual = contratos[contratoIndex].RENDIMENTO_ATUAL; 
+                    const rendimentoAtual = contratos[contratoIndex].RENDIMENTO_ATUAL;
                     const valorInvestido = contratos[contratoIndex].TOTALSPENT;
 
                     //vou dividir a multiplicacao por isso
-                    const valorLucroAtualDoContrato = (parseFloat(valorInvestido)) * (parseFloat(rendimentoAtual)/100);
+                    const valorLucroAtualDoContrato = (parseFloat(valorInvestido)) * (parseFloat(rendimentoAtual) / 100);
 
                     //multiplicacao = rendimentoAtual * o valor
                     const multiplicacao = parseFloat(increasement) * parseFloat(rendimentoAtual)
 
-                    const novoRendimento = (multiplicacao)/valorLucroAtualDoContrato;
+                    const novoRendimento = (multiplicacao) / valorLucroAtualDoContrato;
 
                     contratos[contratoIndex].RENDIMENTO_ATUAL = ((novoRendimento) + rendimentoAtual);
 
                     await clienteRef.update({ CONTRATOS: contratos });
-    
+
                     // Carrega os clientes atualizados em cache se necessário
                     await adminController.loadClientsToCache();
-    
+
                     return res.status(200).json({ data: 'Lucro antecipado com sucesso!', status: 200 });
                 } else {
                     return res.status(404).json({ data: 'Contrato não encontrado.', status: 404 });
@@ -1127,13 +1160,13 @@ const adminController = {
             } else {
                 return res.status(404).json({ data: 'Cliente não encontrado no Firestore.', status: 404 });
             }
-    
+
         } catch (error) {
             console.error("Erro ao cancelar o contrato:", error);
             return res.status(500).json({ data: 'Erro no servidor.', status: 500 });
         }
     }
-    
+
 
 }
 

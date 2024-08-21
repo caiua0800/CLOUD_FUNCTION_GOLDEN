@@ -57,7 +57,6 @@ app.post('/emailExists', clientController.returnEmailExists);
 
 // Rotas Admin
 app.get('/getClients', adminController.getClients);
-app.get('/getClientsPaginated', adminController.getClientsPaginated);
 app.get('/obterDepositos', adminController.obterDepositos);
 app.post('/obterDeposito', adminController.obterDeposito);
 app.get('/getAllClientesWithPlusInfo', adminController.getAllClientesWithPlusInfo);
@@ -77,6 +76,10 @@ app.get('/testCache', adminController.testCache);
 app.post('/adicionarIndicacao', adminController.adicionarIndicacao);
 app.post('/cancelarContrato', adminController.cancelarContrato);
 app.post('/adicionarSaldoParaSaque', adminController.adicionarSaldoParaSaque);
+
+
+//EXTRAÇÃO DE ARQUIVOS
+app.get('/getDatabase', adminController.getExtractDatabase);
 
 
 //Gateway Mercado Pago
