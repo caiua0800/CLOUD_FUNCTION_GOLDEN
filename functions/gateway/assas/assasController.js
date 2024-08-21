@@ -1,41 +1,39 @@
 const fetch = require('node-fetch');
-
+const axios = require('axios')
 // Definindo a chave da API e o identificador da conta
-const ASSAS_API_KEY = "$aact_YTU5YTE0M2M2N2I4MTliNzk0YTI5N2U5MzdjNWZmNDQ6OjAwMDAwMDAwMDAwMDA0NzY5OTM6OiRhYWNoX2FhZGU2Zjc3LWY1YzItNDE4MC1hM2VjLWNhMzJkNGE5YmMxOA==";
+const ASSAS_API_KEY = "$aact_YTU5YTE0M2M2N2I4MTliNzk0YTI5N2U5MzdjNWZmNDQ6OjAwMDAwMDAwMDAwMDA0NzY5OTM6OiRhYWNoX2NkMjkxYzcyLWM5M2YtNGQ2MC1iOTkyLTg2MDI2MzllN2U4YQ==";
 const ACCOUNT_IDENTIFIER = "e79a1550-4f5a-4570-96b1-7ca6e40497b0";
 
 // Função para gerar a chave PIX
-const gerarChavePix = async () => {
+const gerarPIX = async (req, res) => {
     const url = 'https://sandbox.asaas.com/api/v3/pix/addressKeys';
 
     const options = {
-        method: 'POST',
+        method: 'GET',
+        url: 'https://sandbox.asaas.com/api/v3/payments',
         headers: {
-            accept: 'application/json',
-            'content-type': 'application/json',
-            'Authorization': `Bearer ${ASSAS_API_KEY}` // Adiciona a chave da API no cabeçalho
-        },
-        body: JSON.stringify({ type: 'EVP' })
-    };
-
-    try {
-        const response = await fetch(url, options);
-        
-        // Verificação se a resposta é bem-sucedida
-        if (!response.ok) {
-            const errorDetails = await response.text(); // Para obter detalhes do erro
-            throw new Error(`Erro: ${response.status} - ${response.statusText}. Detalhes: ${errorDetails}`);
+          accept: 'application/json',
+          access_token: 'Bearer $aact_YTU5YTE0M2M2N2I4MTliNzk0YTI5N2U5MzdjNWZmNDQ6OjAwMDAwMDAwMDAwMDA0NzY5OTM6OiRhYWNoX2NkMjkxYzcyLWM5M2YtNGQ2MC1iOTkyLTg2MDI2MzllN2U4YQ==',
+          'User-Agent': 'Mozilla/5.0',
+          'Content-Type': 'application/json'
         }
-        
-        const jsonResponse = await response.json();
-        return jsonResponse; // Retorna o JSON com a chave PIX gerada
-    } catch (error) {
-        console.error('Erro ao gerar chave PIX:', error.message);
-        throw error; // Re-throw o erro para permitir tratamento posterior
-    }
+      };
+
+      axios
+      .request(options)
+      .then(function (response) {
+        const data =response.data
+        console.log(data);
+        return res.status(response.status).json({data});
+      })
+      .catch(function (error) {
+        console.error(error);
+        return res.status(error).json({error});
+
+      });
 };
 
 // Exportar a função
 module.exports = {
-    gerarChavePix
+    gerarPIX
 };

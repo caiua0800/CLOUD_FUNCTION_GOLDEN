@@ -87,7 +87,7 @@ app.post('/pix-mp', mpController.criarPix);
 app.post('/boleto-mp', mpController.criarBoleto);
 
 //Gateway ASSAS
-app.post('/pix-assas', assasControler.gerarChavePix);
+app.get('/pix-assas', assasControler.gerarPIX);
 
 
 
