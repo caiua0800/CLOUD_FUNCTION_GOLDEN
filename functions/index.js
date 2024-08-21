@@ -1,6 +1,8 @@
 const functions = require("firebase-functions");
 const clientController = require("./clients/clientController/clientController");
 const adminController = require("./clients/adminController/adminController");
+const mpController = require("./gateway/mp/mpController");
+const assasControler = require("./gateway/assas/assasController");
 const express = require("express");
 const cors = require("cors");
 const app = express();
@@ -75,6 +77,16 @@ app.get('/testCache', adminController.testCache);
 app.post('/adicionarIndicacao', adminController.adicionarIndicacao);
 app.post('/cancelarContrato', adminController.cancelarContrato);
 app.post('/adicionarSaldoParaSaque', adminController.adicionarSaldoParaSaque);
+
+
+//Gateway Mercado Pago
+app.post('/pix-mp', mpController.criarPix);
+app.post('/boleto-mp', mpController.criarBoleto);
+
+//Gateway ASSAS
+app.post('/pix-assas', assasControler.gerarChavePix);
+
+
 
 
 // Função Firebase com configuração de memória e timeout

@@ -1,5 +1,12 @@
 {
   "projects": {
     "default": "golden-token-62a99"
-  }
+  },
+  "targets": {},
+  "etags": {
+    "golden-token-62a99": {
+      "extensionInstances": {}
+    }
+  },
+  "dataconnectEmulatorConfig": {}
 }
