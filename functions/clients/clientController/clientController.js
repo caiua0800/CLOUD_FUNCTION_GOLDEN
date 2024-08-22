@@ -225,6 +225,53 @@ const clientController = {
         }
     },
 
+    updateContratoComIndicacao: async (req, res) => {
+        const { docId, IDCONTRATO, fieldName, fieldNewValue } = req.body;
+    
+        if (!docId || !IDCONTRATO || !fieldName || fieldNewValue === undefined) {
+            return res.status(400).send('DocId, IDCONTRATO, fieldName e fieldNewValue são obrigatórios.');
+        }
+    
+        try {
+            // Atualiza o contrato no Firestore
+            const clienteRef = db.collection('USERS').doc(docId);
+            const clienteDoc = await clienteRef.get();
+            if (clienteDoc.exists) {
+                const clienteData = clienteDoc.data();
+                const contratos = clienteData.CONTRATOS || [];
+                const contratoIndex = contratos.findIndex(contrato => contrato.IDCOMPRA === IDCONTRATO);
+    
+                if (contratoIndex !== -1) {
+                    contratos[contratoIndex][fieldName] = fieldNewValue;
+                    const SAQUE_DE_INDICACAO = clienteData.SAQUE_DE_INDICACAO || 0;
+    
+                    // Atualiza o valor de SAQUE_DE_INDICACAO com o valor de TOTALSPENT do contrato
+                    const novoSaqueDeIndicacao = SAQUE_DE_INDICACAO + parseFloat(contratos[contratoIndex]["TOTALSPENT"]);
+    
+                    // Atualiza o documento no Firestore
+                    await clienteRef.update({ SAQUE_DE_INDICACAO: novoSaqueDeIndicacao, CONTRATOS: contratos });
+    
+                    // Carrega os clientes atualizados no cache
+                    await adminController.loadClientsToCache();
+    
+                    // Obtém o cliente atualizado do Firestore
+                    const clienteDocAtualizado = await clienteRef.get();
+                    const clienteDataAtualizado = clienteDocAtualizado.data();
+    
+                    // Retorna os dados atualizados
+                    res.status(200).json({ clienteData: clienteDataAtualizado });
+                } else {
+                    res.status(404).send('Contrato não encontrado no Firestore.');
+                }
+            } else {
+                res.status(404).send('Cliente não encontrado no Firestore.');
+            }
+        } catch (error) {
+            console.error('Erro ao atualizar o contrato:', error);
+            res.status(500).send('Erro ao atualizar o contrato.');
+        }
+    },
+
 
     updateSaque: async (req, res) => {
         const { docId, DATASOLICITACAO, fieldName, fieldNewValue } = req.body;
@@ -442,6 +489,7 @@ const clientController = {
             res.status(500).send('Erro ao criar o contrato.');
         }
     },
+
 
     createSaque: async (req, res) => {
         const { USERNAME, CPF, saqueData } = req.body;

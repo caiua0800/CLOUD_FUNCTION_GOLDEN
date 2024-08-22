@@ -48,6 +48,7 @@ app.post('/updateSaque', clientController.updateSaque);
 app.post('/createCliente', clientController.createCliente);
 app.post('/createClienteIndicacao', clientController.createClienteIndicacao);
 app.post('/criptografarString', clientController.criptografarString);
+app.post('/updateContratoComIndicacao', clientController.updateContratoComIndicacao);
 app.post('/createContrato', clientController.createContrato);
 app.post('/createSaque', clientController.createSaque);
 app.post('/adicionarSaldoAoIndicador', clientController.adicionarSaldoAoIndicador);
