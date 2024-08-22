@@ -46,17 +46,23 @@ const clientController = {
 
 
     returnEmailLogin: async (request, response) => {
-        const userName = request.body.USERNAME;
-
-        if (!userName)
-            return response.status(404).json({ error: "Necessário enviar o username", status: 404 });
-
-        const clientDoc = await db.collection('DisplayNames').doc(userName).get();
-
-        if (clientDoc.exists) {
-            return response.status(202).json({ EMAIL: clientDoc.data().EMAIL, CPF: clientDoc.data().CPF, status: 202 })
-        } else {
-            return response.status(400).json({ error: "Cliente não encontrado", status: 400 });
+        try {
+            const userName = request.body.USERNAME;
+    
+            if (!userName) {
+                return response.status(400).json({ error: "Necessário enviar o username", status: 400 });
+            }
+    
+            const clientDoc = await db.collection('DisplayNames').doc(userName).get();
+    
+            if (clientDoc.exists) {
+                return response.status(200).json({ EMAIL: clientDoc.data().EMAIL, CPF: clientDoc.data().CPF });
+            } else {
+                return response.status(404).json({ error: "Cliente não encontrado", status: 404 });
+            }
+        } catch (error) {
+            console.error("Erro ao buscar cliente:", error);
+            return response.status(500).json({ error: "Erro interno no servidor", status: 500 });
         }
     },
 
@@ -275,9 +281,10 @@ const clientController = {
 
     updateSaque: async (req, res) => {
         const { docId, DATASOLICITACAO, fieldName, fieldNewValue } = req.body;
-        if (!docId || !DATASOLICITACAO || !fieldName || fieldNewValue === undefined) {
+
+        if (!docId || !DATASOLICITACAO || !fieldName || fieldNewValue === undefined)
             return res.status(400).send('DocId, DATASOLICITACAO do saque, fieldName e fieldNewValue são obrigatórios.');
-        }
+        
 
         try {
             // Obtém o cliente do cache
@@ -298,6 +305,7 @@ const clientController = {
             // Atualiza o saque no Firestore
             const clienteRef = db.collection('USERS').doc(docId);
             const clienteDoc = await clienteRef.get();
+
             if (clienteDoc.exists) {
                 const clienteData = clienteDoc.data();
                 const saques = clienteData.SAQUES || [];
@@ -322,41 +330,46 @@ const clientController = {
         }
     },
 
-
     createCliente: async (req, res) => {
         const clientData = req.body;
-
+    
         if (!clientData.CPF) {
             return res.status(400).send('O CPF é obrigatório.');
         }
-
+    
         if (!clientData.PASSWORD) {
             return res.status(400).send('A senha é obrigatória.');
         }
-
+    
         try {
             const displayNamesDoc = await db.collection('DisplayNames').doc(clientData.USERNAME).get();
-
+    
             if (displayNamesDoc.exists) {
                 return res.status(400).json({ error: `Usuário ${clientData.USERNAME} já existe.` });
             }
-
+    
             const userCredential = await auth.createUser({
                 email: clientData.EMAIL,
                 password: clientData.PASSWORD
             });
-
+    
+            // Obtém a data e hora atuais no fuso horário de Brasília
+            const dataCriacao = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    
+            // Adiciona o campo DATACRIACAO ao cliente
+            clientData.DATACRIACAO = dataCriacao;
+    
             await db.collection('DisplayNames').doc(clientData.USERNAME).set({
                 EMAIL: clientData.EMAIL,
                 CPF: clientData.CPF
             });
-
+    
             await db.collection('USERS').doc(clientData.CPF).set(clientData);
-
+    
             // Adiciona o cliente ao cache
             cache.set(clientData.CPF, clientData);
             await adminController.loadClientsToCache();
-
+    
             return res.status(201).json({ message: 'Usuário criado com sucesso!', uid: userCredential.uid });
         } catch (error) {
             console.error("Erro ao criar cliente:", error);
@@ -367,53 +380,57 @@ const clientController = {
 
     createClienteIndicacao: async (req, res) => {
         const { clientData } = req.body;
-
+    
         if (!clientData.CPF) {
-            
             return res.status(400).json({ error: 'O CPF é obrigatório.' });
         }
-
+    
         if (!clientData.PASSWORD) {
-            return res.status(400).send({ error: 'A senha é obrigatória.' });
+            return res.status(400).json({ error: 'A senha é obrigatória.' });
         }
-
+    
         try {
             if (clientData.INDICADOR) {
                 const decryptedIndicator = decrypt(clientData.INDICADOR);
                 console.log('data recebida');
-                console.log(clientData)
+                console.log(clientData);
+    
                 // Verifica se o usuário já existe
                 const existingDoc = await db.collection('USERS').doc(clientData.CPF).get();
                 if (existingDoc.exists) {
                     return res.status(400).json({ error: 'Usuário com este CPF já existe.' });
                 }
-
+    
                 const displayNamesDoc = await db.collection('DisplayNames').doc(clientData.USERNAME).get();
                 if (displayNamesDoc.exists) {
                     return res.status(400).json({ error: `Usuário ${clientData.USERNAME} já existe.` });
                 }
-
+    
                 // Cria o usuário no Firebase Authentication
                 await auth.createUser({
                     email: clientData.EMAIL,
                     password: clientData.PASSWORD
                 });
-
+    
+                // Obtém a data e hora atuais no fuso horário de Brasília
+                const dataCriacao = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    
+                // Atualiza o cliente com o INDICADOR descriptografado e a data de criação
+                const updatedClientData = {
+                    ...clientData,
+                    INDICADOR: decryptedIndicator,
+                    DATACRIACAO: dataCriacao  // Adiciona o campo DATACRIACAO
+                };
+    
                 // Adiciona o nome de usuário no Firestore
                 await db.collection('DisplayNames').doc(clientData.USERNAME).set({
                     EMAIL: clientData.EMAIL,
                     CPF: clientData.CPF
                 });
-
-                // Atualiza o cliente com o INDICADOR descriptografado
-                const updatedClientData = {
-                    ...clientData,
-                    INDICADOR: decryptedIndicator
-                };
-
+    
                 // Cria o cliente no Firestore
                 await db.collection('USERS').doc(clientData.CPF).set(updatedClientData);
-
+    
                 // Atualiza o indicador com o novo cliente
                 await db.collection('USERS').doc(decryptedIndicator).set({
                     INDICADOS: FieldValue.arrayUnion({
@@ -421,13 +438,12 @@ const clientController = {
                         CPF: clientData.CPF
                     })
                 }, { merge: true });
-
-
+    
                 await adminController.loadClientsToCache();
-
+    
                 return res.status(200).send("Usuário criado com sucesso");
             }
-
+    
             return res.status(400).send("Não encontrado");
         } catch (error) {
             console.error('Erro ao criar cliente:', error);
