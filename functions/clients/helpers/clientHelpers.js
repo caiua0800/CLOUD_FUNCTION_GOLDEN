@@ -97,7 +97,7 @@ const processClientData = (cliente) => {
         return sum;
     }, 0);
 
-    cliente.TOTAL_INDICACAO = totalIndicacaoValue;
+    cliente.TOTAL_INDICACAO = totalIndicacaoValue - parseFloat(cliente.SAQUE_DE_INDICACAO ? cliente.SAQUE_DE_INDICACAO : 0);
 
     // Calcula o TOTAL_PLATAFORMA
     cliente.TOTAL_PLATAFORMA = cliente.LUCRO_CONTRATOS + cliente.TOTAL_SPENT + cliente.TOTAL_INDICACAO;
