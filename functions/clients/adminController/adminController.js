@@ -439,7 +439,7 @@ const adminController = {
             cachedClients.forEach(cliente => {
                 if (cliente.CONTRATOS) {
                     cliente.CONTRATOS.forEach(contrato => {
-                        if (contrato.STATUS === 1) {
+                        if (contrato.STATUS === 1 || contrato.STATUS === 2) {
                             const totalSpent = parseFloat(contrato.TOTALSPENT) || 0;
                             totalSaldoGolden += totalSpent;
                         }
